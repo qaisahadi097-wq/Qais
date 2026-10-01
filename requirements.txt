@@ -1,1 +1,4 @@
 
+langchain-google-genai
+composio-langchain
+python-telegram-bot==20.8
