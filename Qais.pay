@@ -1,1 +1,46 @@
-qais
+import os
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_openai_functions_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from composio_langchain import ComposioToolSet, Action
+
+# دریافت توکن‌ها از محیط سرور رندر
+os.environ["COMPOSIO_API_KEY"] = os.getenv("COMPOSIO_API_KEY", "")
+os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+# مقداردهی ابزار جستجوی کامپوزیا
+toolset = ComposioToolSet()
+tools = toolset.get_tools(actions=[Action.SEARCH_API_GOOGLE_SEARCH])
+
+# تعریف مدل هوش مصنوعی ۱۰۰٪ رایگان گوگل جمینای
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.5)
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "شما یک دستیار هوشمند تلگرام هستید. برای پاسخ به سوالات عمومی کاربر، حتماً از ابزار جستجوی وب استفاده کنید و اطلاعات دقیق و به‌روز ارائه دهید. پاسخ‌ها را به زبان فارسی روان بنویسید."),
+    MessagesPlaceholder(variable_name="chat_history"),
+    ("human", "{input}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
+])
+
+agent = create_openai_functions_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    waiting_message = await update.message.reply_text("در حال جستجو و بررسی در وب... 🔍")
+    try:
+        response = agent_executor.invoke({"input": user_text, "chat_history": []})
+        await waiting_message.edit_text(response["output"])
+    except Exception as e:
+        await waiting_message.edit_text("متأسفانه خطایی در جستجوی وب رخ داد.")
+
+def main():
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
