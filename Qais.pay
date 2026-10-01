@@ -1,2 +1,45 @@
-google-generativeai
-python-telegram-bot==20.8
+import os
+import urllib.parse
+import xml.etree.ElementTree as ET
+import requests
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes
+import google.generativeai as genai
+
+# تنظیم توکن‌ها از سرور رندر
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+# تابع جستجوی مستقیم و رایگان در وب
+def direct_search(query):
+    try:
+        url = f"https://google.com{urllib.parse.quote(query)}&hl=fa&gl=IL&ceid=IL:fa"
+        response = requests.get(url, timeout=10)
+        root = ET.fromstring(response.text)
+        titles = [item.find('title').text for item in root.findall('.//item')[:5]]
+        return "\n".join(titles) if titles else "نتیجه‌ای در وب پیدا نشد."
+    except:
+        return "امکان جستجو در وب فراهم نشد."
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    waiting_message = await update.message.reply_text("در حال جستجو و بررسی مستقیم در وب... 🔍")
+    
+    # جستجوی مستقیم وب
+    search_result = direct_search(user_text)
+    
+    prompt = f"سوال کاربر: {user_text}\n\nاطلاعات خام وب: {search_result}\n\nپاسخی دقیق به زبان فارسی بنویس."
+    try:
+        ai_response = model.generate_content(prompt).text
+        await waiting_message.edit_text(ai_response)
+    except:
+        await waiting_message.edit_text("متأسفانه خطایی در پردازش رخ داد.")
+
+def main():
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
